@@ -1,0 +1,31 @@
+{{- if not .Values.metricsVolume.existingClaim }}
+{{- $pv := .Values.metricsVolume }}
+{{- $destPVCAnnotations := deepCopy .Values.common.annotations -}}
+{{- $destPVCAnnotations = merge $destPVCAnnotations $pv.annotations -}}
+{{- $defaultSelectorLabels := dict
+    "app.kubernetes.io/name" (include "pangea-edge.name" .)
+    "app.kubernetes.io/instance" .Release.Name
+-}}
+{{- $defaultLables :=
+  merge
+    (dict "helm.sh/chart" (include "pangea-edge.chart" .))
+    $defaultSelectorLabels
+-}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $pv.name }}
+  {{- with $destPVCAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  labels:
+    {{- toYaml $defaultLables | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    storageClassName: {{ $pv.storageClass }}
+    requests:
+      storage: {{ $pv.size }}
+{{- end }}

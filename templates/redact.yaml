@@ -1,0 +1,183 @@
+{{- if .Values.services.redact.enabled }}
+{{- $redact := .Values.services.redact -}}
+{{- $redactSelectorLabels := dict "pangea.cloud/service" "redact" -}}
+{{- $redactLabels := merge (fromYaml (include "defaultLabels" .)) $redactSelectorLabels -}}
+{{- $redactDeploymentLabels := merge (deepCopy $redact.labels) $redactLabels -}}
+{{- $redactAnnotations := deepCopy .Values.common.annotations -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "redact"
+  labels:
+    {{- toYaml $redactDeploymentLabels | nindent 4  }}
+spec:
+  {{- if not $redact.autoscaling.enabled }}
+  replicas: {{ $redact.minReplicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "defaultSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with (merge $redact.annotations $redactAnnotations) }}
+      annotations:
+          {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- toYaml $redactDeploymentLabels | nindent 8  }}
+    spec:
+      {{- with (concat .Values.common.imagePullSecrets $redact.image.imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $redact.serviceAccountName }}
+      serviceAccountName: {{ $redact.serviceAccountName }}
+      {{- end}}
+      {{- with $redact.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: pangea-vault-token
+          secret:
+            secretName: {{ required "pangeaVaultTokenSecretName is required" .Values.pangeaVaultTokenSecretName }}
+        - name: metrics-volume
+          persistentVolumeClaim:
+            claimName: {{ include "pangea-edge.claim" . }}
+      containers:
+        - name: "redact"
+          {{- with $redact.podSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ $redact.image.repository }}:{{ $redact.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ $redact.image.pullPolicy }}
+          volumeMounts:
+            - mountPath: /var/pangea/data
+              name: metrics-volume
+            - mountPath: /var/run/secrets
+              name: pangea-vault-token
+          env:
+            - name: PANGEA_REGION
+              value: {{ include "pangea-edge.region" . | quote }}
+            - name: PANGEA_CSP
+              value: {{ include "pangea-edge.csp" . | quote }}
+            - name: PANGEA_VAULT_TOKEN
+              value: "/var/run/secrets/PANGEA_VAULT_TOKEN"
+            - name: PANGEA_VAULT_SERVICE_TOKEN_ID
+              value: {{ required "pangeaVaultServiceTokenID is required" .Values.pangeaVaultServiceTokenID | quote }}
+            {{- if .Values.internal.devMode }}
+            - name: PANGEA_DEV
+              value: "1"
+            {{- end }}
+            - name: REDACT_CONFIG_DATA_COMMON_CLOUD_ONPREM_BM_RECORD_BATCH_TIMER
+              value: "{{ .Values.internal.batchTimer }}"
+            - name: REDACT_CONFIG_DATA_COMMON_CLOUD_ONPREM_BM_RECORD_LOCAL_SUBMISSION_ENABLED
+              value: "false"
+            - name: REDACT_CONFIG_DATA_COMMON_MTL_LOGGER_LOGLEVEL
+              value: {{ .Values.common.logLevel | quote }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 75
+            timeoutSeconds: 12
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 75
+            timeoutSeconds: 12
+          resources:
+            {{- toYaml $redact.resources | nindent 12 }}
+      {{- with $redact.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $redact.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $redact.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $redact.service.name }}
+  labels:
+    {{- toYaml (merge $redact.service.labels $redactLabels) | nindent 4  }}
+spec:
+  type: {{ $redact.service.type }}
+  {{- with $redact.service.ports }}
+  ports:
+    {{- toYaml . | nindent 4 }}
+  {{- end}}
+  selector:
+    {{- toYaml $redactSelectorLabels | nindent 6 }}
+{{- if $redact.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "pangea-edge.fullname" . }}
+  labels:
+    {{- toYaml (merge $redact.autoscaling.labels $redactLabels) | nindent 4 }}
+  {{- with (merge $redact.autoscaling.annotations $redactAnnotations) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: "redact"
+  minReplicas: {{ $redact.minReplicas }}
+  maxReplicas: {{ $redact.autoscaling.maxReplicas }}
+  metrics:
+    {{- if $redact.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        targetAverageUtilization: {{ $redact.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if $redact.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        targetAverageUtilization: {{ $redact.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }}
+{{- if $redact.serviceMonitor.enabled }}
+{{- $redactServiceMonitorLabels := deepCopy (fromYaml (include "defaultLabels" .)) }}
+{{- $redactServiceMonitorLabels = merge $redactServiceMonitorLabels $redact.serviceMonitor.labels }}
+{{- $redactServiceMonitorAnnotations := deepCopy .Values.common.annotations }}
+{{- $redactServiceMonitorAnnotations = merge $redactServiceMonitorAnnotations $redact.serviceMonitor.annotations }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  {{- with $redactServiceMonitorAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  labels:
+    {{- toYaml $redactServiceMonitorLabels | nindent 4 }}
+  name: redact-service-monitor
+spec:
+  endpoints:
+  - interval: 30s
+    port: {{ $redact.serviceMonitor.portName }}
+  selector:
+    matchLabels:
+      {{- toYaml $redactSelectorLabels | nindent 6 }}
+{{- end }}
+{{- end }}

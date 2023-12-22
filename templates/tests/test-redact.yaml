@@ -1,0 +1,49 @@
+{{- if and .Values.services.redact.enabled }}
+{{- $redact := .Values.services.redact -}}
+{{- $redactSelectorLabels := dict "pangea.cloud/service" "redact" -}}
+{{- $redactLabels := merge (fromYaml (include "defaultLabels" .)) $redactSelectorLabels -}}
+{{- $redactAnnotations := deepCopy .Values.common.annotations -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-script
+data:
+  test-script.sh: |
+    #!/bin/sh
+    PANGEA_TOKEN=$(cat /var/run/secrets/PANGEA_TOKEN)
+
+    # Your test command
+    curl -H "Authorization: Bearer $PANGEA_TOKEN" http://{{ $redact.service.name }}:{{ $redact.tests.testPort }}/v1/redact -d '{"text": "test-text"}'
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "redact-test-connection"
+  labels:
+    {{- toYaml $redactLabels | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    {{- with $redactAnnotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  containers:
+    - name: curl
+      image: curlimages/curl
+      command: ['/var/run/script/test-script.sh']
+      volumeMounts:
+        - name: secret-volume
+          readOnly: true
+          mountPath: "/var/run/secrets"
+        - name: script-volume
+          mountPath: "/var/run/script"
+  restartPolicy: Never
+  volumes:
+    - name: secret-volume
+      secret:
+        secretName: {{ required "'services.redact.tests.serviceTokenSecretName' must be set" $redact.tests.serviceTokenSecretName }}
+    - name: script-volume
+      configMap:
+        name: test-script
+        defaultMode: 0777
+{{- end}}

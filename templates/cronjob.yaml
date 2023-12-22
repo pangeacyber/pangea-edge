@@ -1,0 +1,104 @@
+{{- $destCronAnnotations := deepCopy .Values.common.annotations -}}
+{{- $mergedCronjobAnnotations := merge $destCronAnnotations .Values.services.submission.annotations -}}
+{{- $defaultSelectorLabels := dict
+    "app.kubernetes.io/name" (include "pangea-edge.name" .)
+    "app.kubernetes.io/instance" .Release.Name
+-}}
+{{- $defaultLables :=
+  merge
+    (dict
+      "helm.sh/chart" (include "pangea-edge.chart" .)
+      "pangea.cloud/service" "metrics-submission"
+    )
+    $defaultSelectorLabels
+    .Values.services.submission.labels
+-}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  {{- with $mergedCronjobAnnotations }}
+  annotations:
+    {{ toYaml $mergedCronjobAnnotations | nindent 4 }}
+  {{- end }}
+  labels:
+    {{- toYaml $defaultLables | nindent 4 }}
+  name: pangea-usage-submission
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      {{- with $mergedCronjobAnnotations }}
+      annotations:
+        {{ toYaml $mergedCronjobAnnotations | nindent 6 }}
+      {{- end }}
+      labels:
+        {{- toYaml $defaultLables | nindent 8 }}
+      name: usage-submit
+    spec:
+      backoffLimit: 0
+      parallelism: 1
+      template:
+        metadata:
+        {{- with $mergedCronjobAnnotations }}
+        annotations:
+          {{ toYaml $mergedCronjobAnnotations | nindent 10 }}
+        {{- end }}
+        spec:
+          imagePullSecrets:
+            {{- toYaml (concat .Values.common.imagePullSecrets .Values.services.submission.image.imagePullSecrets) | nindent 12 }}
+          containers:
+          - env:
+            - name: PANGEA_VAULT_SERVICE_TOKEN_ID
+              value: {{ required "'pangeaVaultServiceTokenID' is required" .Values.pangeaVaultServiceTokenID | quote }}
+            - name: PANGEA_CSP
+              value: {{ include "pangea-edge.csp" . | quote }}
+            - name: PANGEA_REGION
+              value: {{ include "pangea-edge.region" . | quote }}
+            - name: PANGEA_EDGE_BM_RECORD_STORAGE_DIRECTORY
+              value: "/var/run/data"
+            - name: PANGEA_VAULT_TOKEN
+              value: "/var/run/secrets/PANGEA_VAULT_TOKEN"
+            - name: PANGEA_EDGE_BATCH_TIMER
+              value: "{{ .Values.internal.batchTimer }}s"
+            {{- if .Values.internal.devMode }}
+            - name: PANGEA_DEV
+              value: "1"
+            {{- end }}
+            {{- if not .Values.services.submission.linkerd }}
+            - name: LINKERD_AWAIT_DISABLED
+              value: "true"
+            {{- end }}
+            - name: PANGEA_LOG_LEVEL
+              value: {{ .Values.common.logLevel | quote }}
+            image: {{ .Values.services.submission.image.repository }}:{{ .Values.services.submission.image.tag }}
+            imagePullPolicy: {{ .Values.services.submission.image.pullPolicy }}
+            name: "pangea-usage-submission"
+            resources:
+              limits:
+                cpu: 100m
+                ephemeral-storage: 50Mi
+                memory: 500Mi
+              requests:
+                cpu: 100m
+                ephemeral-storage: 50Mi
+                memory: 250Mi
+            volumeMounts:
+              - mountPath: /var/run/data
+                name: metrics-volume
+              - mountPath: /var/run/secrets
+                name: pangea-vault-token
+          dnsPolicy: ClusterFirst
+          restartPolicy: Never
+          schedulerName: {{ .Values.services.submission.schedulerName }}
+          terminationGracePeriodSeconds: 30
+          volumes:
+            - name: pangea-vault-token
+              secret:
+                secretName: {{ required "pangeaVaultTokenSecretName is required" .Values.pangeaVaultTokenSecretName }}
+            - name: metrics-volume
+              persistentVolumeClaim:
+                claimName: {{ include "pangea-edge.claim" . | quote }}
+  schedule: {{ .Values.internal.cronTimer | quote }}
+  successfulJobsHistoryLimit: 1
+  suspend: false
