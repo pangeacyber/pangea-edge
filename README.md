@@ -56,11 +56,11 @@ data:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: vault-token
-  namespace:pangea
+    name: vault-token
+    namespace: pangea
 type: Opaque
 data:
-  PANGEA_TOKEN: <base 64 encoded token value>
+    PANGEA_TOKEN: <base 64 encoded token value>
 ```
 
 4. Add a service token for testing (optional)
