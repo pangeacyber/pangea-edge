@@ -13,12 +13,10 @@ Contact [support](mailto:support@pangea.cloud) for access to our edge images.
 -   [helm](https://helm.sh/) installed
 
 ### Install with Helm
-
 Pangea is a security company and thus tries to follow security best practices. Thus this chart does not expect any sensitive
 information directly.
 
-1. Create a namespace for deployment (optional)
-
+**1. Create a namespace for deployment (optional)**
 ```bash
 kubectl create namespace pangea
 ```
@@ -43,15 +41,16 @@ Image pull secret manifest example:
 apiVersion: v1
 kind: Secret
 metadata:
-    name: pangeaRegistryKey
+    name: pangea-registry-key
     namespace: pangea
 type: kubernetes.io/dockerconfigjson
 data:
     .dockerconfigjson: <base64-encoded-docker-config>
 ```
 
-3. Add the [pangea vault edge token](https://console.pangea.cloud/service/redact/proxy) as a kubernetes secret
+**3. Add the [pangea vault edge token](https://console.pangea.cloud/service/redact/proxy) as a kubernetes secret**
 
+Add your encoded value of token and create Kubernetes secret in your namespace:
 ```yaml
 apiVersion: v1
 kind: Secret
@@ -60,10 +59,28 @@ metadata:
     namespace: pangea
 type: Opaque
 data:
-    PANGEA_TOKEN: <base 64 encoded token value>
+  PANGEA_VAULT_TOKEN: <base 64 encoded token value>
 ```
 
-4. Add a service token for testing (optional)
+**4. Create a Persistent volume claim**
+
+This volume is used to store usage metrics and metadata used to update Pangea metrics dashboards.
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+    name: usage-metrics-claim
+    namespace: pangea
+spec:
+    accessModes:
+        - ReadWriteMany
+    resources:
+        requests:
+            Storage: 5Gi
+```
+
+**5. Add a service token for testing (optional)**
 
 This token is a standard service token you would use to make calls to your desired Pangea service.
 Helm will use this token to test to ensure the deployment is running, in this case, redact.
@@ -102,9 +119,9 @@ spec:
 
 Note: You may need to create a persistent volume if your storage provider doesn't support automatic allocation
 
-6. Configure & install the chart
+**6. Configure & install the chart**
 
-Make sure you fetch your vault secret ID from the [edge proxy page](https://console.pangea.cloud/service/redact/proxy)
+Make sure you fetch your Vault secret ID from the [edge proxy page](https://console.pangea.cloud/service/redact/proxy)
 
 ```bash
 cat <<EOF  > /tmp/redact.yaml
@@ -114,7 +131,7 @@ common:
   pangeaDomain: "aws.us.pangea.cloud"
   # If pull secrets are desired as configured in step 2
   imagePullSecrets:
-    - pangeaRegistryKey
+    - name: pangea-registry-key
 services:
   redact:
     enabled: true
