@@ -21,7 +21,7 @@ information directly.
 kubectl create namespace pangea
 ```
 
-2. Add image pull secrets (optional)
+**2. Add image pull secrets (optional)**
 
 Pangea edge images are private, therefore you need to [request access](mailto:michael.combs@pangea.cloud), then
 either pull the images to a container registry such as [ecr](https://aws.amazon.com/ecr/) or [artifact registry](https://cloud.google.com/artifact-registry), or
@@ -79,6 +79,8 @@ spec:
         requests:
             Storage: 5Gi
 ```
+Note: You may need to create a persistent volume if your storage provider doesn't support automatic allocation
+
 
 **5. Add a service token for testing (optional)**
 
@@ -97,27 +99,6 @@ type: Opaque
 data:
     PANGEA_TOKEN: <base 64 encoded service token>
 ```
-
-5. Create a Persistent volume claim
-
-This volume is used to store usage metrics and metadata used to update Pangea metrics dashboards.
-
-```yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-    name: usage-metrics-claim
-    namespace: pangea
-spec:
-    accessModes:
-        - ReadWriteMany #
-    storageClassName: "" # or your desired storage class
-    resources:
-        requests:
-            Storage: 5Gi
-```
-
-Note: You may need to create a persistent volume if your storage provider doesn't support automatic allocation
 
 **6. Configure & install the chart**
 
