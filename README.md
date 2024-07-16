@@ -77,7 +77,7 @@ spec:
         - ReadWriteMany
     resources:
         requests:
-            Storage: 5Gi
+            storage: 5Gi
 ```
 Note: You may need to create a persistent volume if your storage provider doesn't support automatic allocation
 
